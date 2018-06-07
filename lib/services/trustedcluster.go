@@ -39,6 +39,10 @@ type TrustedCluster interface {
 	GetEnabled() bool
 	// SetEnabled enables (handshake and add ca+reverse tunnel) or disables TrustedCluster.
 	SetEnabled(bool)
+	// GetForce gets if the state change is forced.
+	GetForce() bool
+	// GetForce gets if the state change is forced.
+	SetForce(bool)
 	// CombinedMapping is used to specify combined mapping from legacy property Roles
 	// and new property RoleMap
 	CombinedMapping() RoleMap
@@ -66,6 +70,8 @@ type TrustedCluster interface {
 	CheckAndSetDefaults() error
 	// CanChangeStateTo checks the TrustedCluster can transform into another.
 	CanChangeStateTo(TrustedCluster) error
+	// Equals checks if the two TrustedCluster resources are equal.
+	Equals(TrustedCluster) error
 }
 
 // NewTrustedCluster is a convenience wa to create a TrustedCluster resource.
@@ -102,6 +108,9 @@ type TrustedClusterSpecV2 struct {
 	// Setting Enabled to false has a side effect of deleting the user and host
 	// certificate authority (CA).
 	Enabled bool `json:"enabled"`
+
+	// Force will always delete and recreate the resource.
+	Force bool `json:"force"`
 
 	// Roles is a list of roles that users will be assuming when connecting to this cluster.
 	Roles []string `json:"roles,omitempty"`
@@ -325,9 +334,19 @@ func (c *TrustedClusterV2) GetEnabled() bool {
 	return c.Spec.Enabled
 }
 
+// GetForce gets if the state change is forced.
+func (c *TrustedClusterV2) GetForce() bool {
+	return c.Spec.Force
+}
+
 // SetEnabled enables (handshake and add ca+reverse tunnel) or disables TrustedCluster.
 func (c *TrustedClusterV2) SetEnabled(e bool) {
 	c.Spec.Enabled = e
+}
+
+// SetForce sets if the state change is forced.
+func (c *TrustedClusterV2) SetForce(f bool) {
+	c.Spec.Force = f
 }
 
 // GetRoles returns the roles for the certificate authority.
@@ -368,6 +387,30 @@ func (c *TrustedClusterV2) GetReverseTunnelAddress() string {
 // SetReverseTunnelAddress sets the address of the reverse tunnel.
 func (c *TrustedClusterV2) SetReverseTunnelAddress(e string) {
 	c.Spec.ReverseTunnelAddress = e
+}
+
+// Equals checks if the two TrustedCluster resources are equal.
+func (c *TrustedClusterV2) Equals(t TrustedCluster) error {
+	if c.GetToken() != t.GetToken() {
+		return trace.BadParameter("tokens do not match")
+	}
+	if c.GetProxyAddress() != t.GetProxyAddress() {
+		return trace.BadParameter("proxy address does not match")
+	}
+	if c.GetReverseTunnelAddress() != t.GetReverseTunnelAddress() {
+		return trace.BadParameter("reverse tunnel address does not match")
+	}
+	if !utils.StringSlicesEqual(c.GetRoles(), t.GetRoles()) {
+		return trace.BadParameter("roles do not match")
+	}
+	if !c.GetRoleMap().Equals(t.GetRoleMap()) {
+		return trace.BadParameter("role map does not match")
+	}
+	if c.GetEnabled() != t.GetEnabled() {
+		return trace.BadParameter("enabled does not match")
+	}
+
+	return nil
 }
 
 // CanChangeState checks if the state change is allowed or not. If not, returns
@@ -411,6 +454,7 @@ const TrustedClusterSpecSchemaTemplate = `{
   "additionalProperties": false,
   "properties": {
     "enabled": {"type": "boolean"},
+    "force": {"type": "boolean"},
     "roles": {
       "type": "array",
       "items": {

@@ -12,7 +12,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
 */
 
 package auth
@@ -36,12 +35,12 @@ import (
 
 // UpsertTrustedCluster creates or toggles a Trusted Cluster relationship.
 func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster) (services.TrustedCluster, error) {
+	var err error
+	var existingCluster services.TrustedCluster
 	var exists bool
 
-	// it is recommended to omit trusted cluster name, because
-	// it will be always set to the cluster name as set by the cluster
-	var existingCluster services.TrustedCluster
-	var err error
+	// It is recommended to omit trusted cluster name, because it will be always
+	// set to the cluster name as set by the cluster.
 	if trustedCluster.GetName() != "" {
 		existingCluster, err = a.Presence.GetTrustedCluster(trustedCluster.GetName())
 		if err == nil {
@@ -51,16 +50,28 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 
 	enable := trustedCluster.GetEnabled()
 
-	// if the trusted cluster already exists in the backend, make sure it's a
-	// valid state change client is trying to make
+	// If the resource exists, check if the state change is possible.
 	if exists == true {
-		err := existingCluster.CanChangeStateTo(trustedCluster)
+		// If "force" was set and the change is a NOP, then return success right away.
+		// This allows commands like "tctl create -f ..." to work.
+		if trustedCluster.GetForce() {
+			err = trustedCluster.Equals(existingCluster)
+			if err == nil {
+				log.Debugf("Force used, existing trusted cluster equals the new cluster: nop.")
+				return trustedCluster, nil
+			}
+		}
+
+		// Check if the state change is possible. This applies even if force was
+		// used, force can not be used to allow changing into an illegal state
+		// (for example: tokens don't match).
+		err = existingCluster.CanChangeStateTo(trustedCluster)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
 	}
 
-	// change state
+	// Change state.
 	switch {
 	case exists == true && enable == true:
 		log.Debugf("Enabling existing Trusted Cluster relationship.")
@@ -93,7 +104,7 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 			return nil, trace.Wrap(err)
 		}
 	case exists == false && enable == true:
-		log.Debugf("Creating enabled Trusted Cluster relationship.")
+		log.Debugf("Creating enabled Trusted Cluster relationship for %v.", trustedCluster.GetName())
 
 		if err := a.checkLocalRoles(trustedCluster.GetRoleMap()); err != nil {
 			return nil, trace.Wrap(err)
@@ -104,8 +115,8 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 			return nil, trace.Wrap(err)
 		}
 
-		// force name of the trusted cluster resource
-		// to be equal to the name of the remote cluster it is connecting to
+		// Force name of the trusted cluster resource to be equal to the name of
+		// the remote cluster it is connecting to.
 		trustedCluster.SetName(remoteCAs[0].GetClusterName())
 
 		err = a.addCertAuthorities(trustedCluster, remoteCAs)
@@ -117,9 +128,8 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
-
 	case exists == false && enable == false:
-		log.Debugf("Creating disabled Trusted Cluster relationship.")
+		log.Debugf("Creating disabled Trusted Cluster relationship for %v.", trustedCluster.GetName())
 
 		if err := a.checkLocalRoles(trustedCluster.GetRoleMap()); err != nil {
 			return nil, trace.Wrap(err)
@@ -130,7 +140,7 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 			return nil, trace.Wrap(err)
 		}
 
-		// force name to the name of the trusted cluster
+		// Force name to the name of the trusted cluster.
 		trustedCluster.SetName(remoteCAs[0].GetClusterName())
 
 		err = a.addCertAuthorities(trustedCluster, remoteCAs)
@@ -143,6 +153,7 @@ func (a *AuthServer) UpsertTrustedCluster(trustedCluster services.TrustedCluster
 			return nil, trace.Wrap(err)
 		}
 	}
+
 	return a.Presence.UpsertTrustedCluster(trustedCluster)
 }
 

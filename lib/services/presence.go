@@ -23,7 +23,6 @@ import (
 // Presence records and reports the presence of all components
 // of the cluster - Nodes, Proxies and SSH nodes
 type Presence interface {
-
 	// UpsertLocalClusterName upserts local domain
 	UpsertLocalClusterName(name string) error
 
